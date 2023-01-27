@@ -1,5 +1,65 @@
 ## Updates
 
+- **26-Jan-2023**: Work on SRGB support in sokol_gfx.h has started, but
+  this requires more effort to be really usable. For now, only a new
+  pixel format has been added: SG_PIXELFORMAT_SRGB8A8 (see https://github.com/floooh/sokol/pull/758,
+  many thanks to @allcreater). The sokol-gfx GL backend has a temporary
+  workaround to align behaviour with D3D11 and Metal: automatic SRGB conversion
+  is enabled for offscreen render passes, but disabled for the default
+  framebuffer. A proper fix will require separate work on sokol_app.h to
+  support an SRGB default framebuffer and communicate to sokol-gfx
+  whether the default framebuffer is SRGB enabled or not.
+
+- **24-Jan-2023**: sokol_gfx.h Metal: A minor inconsistency has been fixed in
+  the validation layer and an assert for the function ```sg_apply_uniforms()```
+  which checks the size of the incoming data against the uniform block size.
+  The validation layer and Metal backend did a ```<=``` test while the D3D11
+  and GL backends checked for an exact size match. Both the validation layer
+  and the Metal backend now also check for an exact match. Thanks to @nmr8acme
+  for noticing the issue and providing a PR! (https://github.com/floooh/sokol/pull/776)
+
+- **23-Jan-2023**: A couple more sokol_audio.h updates:
+  - an AAudio backend has been added for Android, and made the default. This
+    means you now need to link with ```aaudio``` instead of ```OpenSLES``` when
+    using sokol_audio.h on Android. The OpenSLES backend code still exists (for
+    now), but must be explicitly selected by compiling the sokol_audio.h
+    implementation with the define ```SAUDIO_ANDROID_SLES``` (e.g. there is
+    no runtime fallback from AAudio to OpenSLES). AAudio is fully supported
+    since Android 8.1. Many thanks to @oviano for the initial AAudio PR
+    (https://github.com/floooh/sokol/pull/484)
+  - in the WebAudio backend, WebAudio is now properly activated on the first
+    input action again on Chrome for Android (at some point activating WebAudio
+    via a ```touchstart``` event stopped working and had to be moved to the
+    ```touchend``` event, see https://github.com/floooh/sokol/issues/701)
+  - audio backend initialization on iOS and macOS is now a bit more fault-tolerant,
+    errors during initialization now properly set sokol_audio.h to 'silent mode'
+    instead of asserting (or in release mode ignoring the error)
+  - ...and some minor general code cleanup things in sokol_audio.h: backend-specific
+    functions now generally have a matching prefix (like ```_saudio_alsa_...()```)
+    for better searchability
+
+- **16-Jan-2023**:
+  - sokol_audio.h android: https://github.com/floooh/sokol/pull/747 has been merged
+    which adds a couple more error checks at OpenSLES startup.
+  - sokol_gfx.h: support for half-float vertex formats has been added via
+    PR https://github.com/floooh/sokol/pull/745
+  - sokol_imgui.h: fixes for Dear ImGui 1.89 deprecations (via PR https://github.com/floooh/sokol/pull/761)
+
+- **15-Jan-2023**: two bugfixes in sokol_app.h and sokol_gfx.h:
+  - sokol_app.h x11: Mouse button events now always return valid mouse
+    coordinates, also when no mouse movement happened yet
+    (fixes https://github.com/floooh/sokol/issues/770)
+  - sokol_gfx.h gl: The GL context is now configured with
+    GL_UNPACK_ALIGNMENT = 1, this should bring texture creation and updating
+    behaviour in line with the other backends for tightly packed texture
+    data that doesn't have a row-pitch with a multiple of 4
+    (fixes https://github.com/floooh/sokol/issues/767)
+
+- **14-Jan-2023**: sokol_app.h x11: a drag'n'drop related bugfix, the
+  XdndFinished reply event was sent with the wrong window handle which
+  confused some apps where the drag operation originated
+  (see https://github.com/floooh/sokol/pull/765#issuecomment-1382750611)
+
 - **16-Dec-2022**: In the sokol_gfx.h Metal backend: A fix for a Metal
   validation layer error which I just discovered yesterday (seems to be new in
   macOS 13). When the validation layer is active, and the application window

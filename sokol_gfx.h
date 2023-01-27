@@ -643,9 +643,11 @@
         - SG_VERTEXFORMAT_SHORT2
         - SG_VERTEXFORMAT_SHORT4
 
-    - WebGL/GLES2 cannot use integer vertex shader inputs (int or ivecn)
+    - WebGL/GLES2 cannot use integer vertex shader inputs (int or ivecn) or the following:
 
-    - SG_VERTEXFORMAT_UINT10_N2 is not supported on WebGL/GLES2
+        - SG_VERTEXFORMAT_UINT10_N2
+        - SG_VERTEXFORMAT_HALF2, SG_VERTEXFORMAT_HALF4
+          (commonly supported extension: OES_vertex_half_float)
 
     So for a vertex input layout which works on all platforms, only use the following
     vertex formats, and if needed "expand" the normalized vertex shader
@@ -1179,6 +1181,7 @@ typedef enum sg_pixel_format {
     SG_PIXELFORMAT_RG16SI,
     SG_PIXELFORMAT_RG16F,
     SG_PIXELFORMAT_RGBA8,
+    SG_PIXELFORMAT_SRGB8A8,
     SG_PIXELFORMAT_RGBA8SN,
     SG_PIXELFORMAT_RGBA8UI,
     SG_PIXELFORMAT_RGBA8SI,
@@ -1576,6 +1579,8 @@ typedef enum sg_vertex_format {
     SG_VERTEXFORMAT_SHORT4N,
     SG_VERTEXFORMAT_USHORT4N,
     SG_VERTEXFORMAT_UINT10_N2,
+    SG_VERTEXFORMAT_HALF2,
+    SG_VERTEXFORMAT_HALF4,
     _SG_VERTEXFORMAT_NUM,
     _SG_VERTEXFORMAT_FORCE_U32 = 0x7FFFFFFF
 } sg_vertex_format;
@@ -2633,7 +2638,7 @@ typedef struct sg_pass_info {
             ID3D11DepthStencilView object of the default framebuffer,
             this function will be called in sg_begin_pass() when rendering
             to the default framebuffer
-        .context.metal.user_data
+        .context.d3d11.user_data
             optional user data pointer passed to the userdata versions of
             callback functions
 
@@ -2654,7 +2659,7 @@ typedef struct sg_pass_info {
         .context.wgpu.depth_stencil_view_userdata_cb
             callback to get current default-pass depth-stencil-surface WGPUTextureView
             the pixel format of the default WGPUTextureView must be WGPUTextureFormat_Depth24Plus8
-        .context.metal.user_data
+        .context.wgpu.user_data
             optional user data pointer passed to the userdata versions of
             callback functions
 
@@ -3192,6 +3197,7 @@ inline int sg_append_buffer(sg_buffer buf_id, const sg_range& data) { return sg_
         #define GL_NEAREST_MIPMAP_LINEAR 0x2702
         #define GL_RGB10_A2 0x8059
         #define GL_RGBA8 0x8058
+        #define GL_SRGB8_ALPHA8 0x8C43
         #define GL_RGBA4 0x8056
         #define GL_RGB8 0x8051
         #define GL_ARRAY_BUFFER 0x8892
@@ -3344,6 +3350,8 @@ inline int sg_append_buffer(sg_buffer buf_id, const sg_range& data) { return sg_
         #define GL_MAX_VERTEX_UNIFORM_VECTORS 0x8DFB
         #define GL_MAX_TEXTURE_IMAGE_UNITS 0x8872
         #define GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS 0x8B4C
+        #define GL_UNPACK_ALIGNMENT 0x0CF5
+        #define GL_FRAMEBUFFER_SRGB 0x8DB9
     #endif
 
     #ifndef GL_UNSIGNED_INT_2_10_10_10_REV
@@ -4696,6 +4704,8 @@ _SOKOL_PRIVATE int _sg_vertexformat_bytesize(sg_vertex_format fmt) {
         case SG_VERTEXFORMAT_SHORT4N:   return 8;
         case SG_VERTEXFORMAT_USHORT4N:  return 8;
         case SG_VERTEXFORMAT_UINT10_N2: return 4;
+        case SG_VERTEXFORMAT_HALF2:     return 4;
+        case SG_VERTEXFORMAT_HALF4:     return 8;
         case SG_VERTEXFORMAT_INVALID:   return 0;
         default:
             SOKOL_UNREACHABLE;
@@ -4877,6 +4887,7 @@ _SOKOL_PRIVATE int _sg_pixelformat_bytesize(sg_pixel_format fmt) {
         case SG_PIXELFORMAT_RG16SI:
         case SG_PIXELFORMAT_RG16F:
         case SG_PIXELFORMAT_RGBA8:
+        case SG_PIXELFORMAT_SRGB8A8:
         case SG_PIXELFORMAT_RGBA8SN:
         case SG_PIXELFORMAT_RGBA8UI:
         case SG_PIXELFORMAT_RGBA8SI:
@@ -5446,7 +5457,8 @@ _SOKOL_PRIVATE void _sg_dummy_update_image(_sg_image_t* img, const sg_image_data
     _SG_XMACRO(glTexImage2D,                      void, (GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void * pixels)) \
     _SG_XMACRO(glGenVertexArrays,                 void, (GLsizei n, GLuint * arrays)) \
     _SG_XMACRO(glFrontFace,                       void, (GLenum mode)) \
-    _SG_XMACRO(glCullFace,                        void, (GLenum mode))
+    _SG_XMACRO(glCullFace,                        void, (GLenum mode)) \
+    _SG_XMACRO(glPixelStorei,                     void, (GLenum pname, GLint param))
 
 // generate GL function pointer typedefs
 #define _SG_XMACRO(name, ret, args) typedef ret (GL_APIENTRY* PFN_ ## name) args;
@@ -5543,6 +5555,8 @@ _SOKOL_PRIVATE GLint _sg_gl_vertexformat_size(sg_vertex_format fmt) {
         case SG_VERTEXFORMAT_SHORT4N:   return 4;
         case SG_VERTEXFORMAT_USHORT4N:  return 4;
         case SG_VERTEXFORMAT_UINT10_N2: return 4;
+        case SG_VERTEXFORMAT_HALF2:     return 2;
+        case SG_VERTEXFORMAT_HALF4:     return 4;
         default: SOKOL_UNREACHABLE; return 0;
     }
 }
@@ -5570,6 +5584,9 @@ _SOKOL_PRIVATE GLenum _sg_gl_vertexformat_type(sg_vertex_format fmt) {
             return GL_UNSIGNED_SHORT;
         case SG_VERTEXFORMAT_UINT10_N2:
             return GL_UNSIGNED_INT_2_10_10_10_REV;
+        case SG_VERTEXFORMAT_HALF2:
+        case SG_VERTEXFORMAT_HALF4:
+            return GL_HALF_FLOAT;
         default:
             SOKOL_UNREACHABLE; return 0;
     }
@@ -5701,6 +5718,7 @@ _SOKOL_PRIVATE GLenum _sg_gl_teximage_type(sg_pixel_format fmt) {
         case SG_PIXELFORMAT_RG8:
         case SG_PIXELFORMAT_RG8UI:
         case SG_PIXELFORMAT_RGBA8:
+        case SG_PIXELFORMAT_SRGB8A8:
         case SG_PIXELFORMAT_RGBA8UI:
         case SG_PIXELFORMAT_BGRA8:
             return GL_UNSIGNED_BYTE;
@@ -5800,6 +5818,7 @@ _SOKOL_PRIVATE GLenum _sg_gl_teximage_format(sg_pixel_format fmt) {
                 return GL_RG_INTEGER;
         #endif
         case SG_PIXELFORMAT_RGBA8:
+        case SG_PIXELFORMAT_SRGB8A8:
         case SG_PIXELFORMAT_RGBA8SN:
         case SG_PIXELFORMAT_RGBA16:
         case SG_PIXELFORMAT_RGBA16SN:
@@ -5901,6 +5920,7 @@ _SOKOL_PRIVATE GLenum _sg_gl_teximage_internal_format(sg_pixel_format fmt) {
             case SG_PIXELFORMAT_RG16SI:     return GL_RG16I;
             case SG_PIXELFORMAT_RG16F:      return GL_RG16F;
             case SG_PIXELFORMAT_RGBA8:      return GL_RGBA8;
+            case SG_PIXELFORMAT_SRGB8A8:    return GL_SRGB8_ALPHA8;
             case SG_PIXELFORMAT_RGBA8SN:    return GL_RGBA8_SNORM;
             case SG_PIXELFORMAT_RGBA8UI:    return GL_RGBA8UI;
             case SG_PIXELFORMAT_RGBA8SI:    return GL_RGBA8I;
@@ -6007,6 +6027,7 @@ _SOKOL_PRIVATE void _sg_gl_init_pixelformats(bool has_bgra) {
     _sg_pixelformat_all(&_sg.formats[SG_PIXELFORMAT_RGBA8]);
     #if !defined(SOKOL_GLES2)
     if (!_sg.gl.gles2) {
+        _sg_pixelformat_all(&_sg.formats[SG_PIXELFORMAT_SRGB8A8]);
         _sg_pixelformat_sf(&_sg.formats[SG_PIXELFORMAT_RGBA8SN]);
         _sg_pixelformat_srm(&_sg.formats[SG_PIXELFORMAT_RGBA8UI]);
         _sg_pixelformat_srm(&_sg.formats[SG_PIXELFORMAT_RGBA8SI]);
@@ -6822,6 +6843,8 @@ _SOKOL_PRIVATE sg_resource_state _sg_gl_create_context(_sg_context_t* ctx) {
         _SG_GL_CHECK_ERROR();
     }
     #endif
+    // incoming texture data is generally expected to be packed tightly
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     return SG_RESOURCESTATE_VALID;
 }
 
@@ -7523,15 +7546,29 @@ _SOKOL_PRIVATE void _sg_gl_begin_pass(_sg_pass_t* pass, const sg_pass_action* ac
     /* number of color attachments */
     const int num_color_atts = pass ? pass->cmn.num_color_atts : 1;
 
-    /* bind the render pass framebuffer */
+    // bind the render pass framebuffer
+    //
+    // FIXME: Disabling SRGB conversion for the default framebuffer is
+    // a crude hack to make behaviour for sRGB render target textures
+    // identical with the Metal and D3D11 swapchains created by sokol-app.
+    //
+    // This will need a cleaner solution (e.g. allowing to configure
+    // sokol_app.h with an sRGB or RGB framebuffer.
     if (pass) {
-        /* offscreen pass */
+        // offscreen pass
         SOKOL_ASSERT(pass->gl.fb);
+        #if defined(SOKOL_GLCORE33)
+        glEnable(GL_FRAMEBUFFER_SRGB);
+        #endif
         glBindFramebuffer(GL_FRAMEBUFFER, pass->gl.fb);
+
     }
     else {
-        /* default pass */
+        // default pass
         SOKOL_ASSERT(_sg.gl.cur_context);
+        #if defined(SOKOL_GLCORE33)
+        glDisable(GL_FRAMEBUFFER_SRGB);
+        #endif
         glBindFramebuffer(GL_FRAMEBUFFER, _sg.gl.cur_context->default_framebuffer);
     }
     glViewport(0, 0, w, h);
@@ -8624,6 +8661,7 @@ _SOKOL_PRIVATE DXGI_FORMAT _sg_d3d11_pixel_format(sg_pixel_format fmt) {
         case SG_PIXELFORMAT_RG16SI:         return DXGI_FORMAT_R16G16_SINT;
         case SG_PIXELFORMAT_RG16F:          return DXGI_FORMAT_R16G16_FLOAT;
         case SG_PIXELFORMAT_RGBA8:          return DXGI_FORMAT_R8G8B8A8_UNORM;
+        case SG_PIXELFORMAT_SRGB8A8:        return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
         case SG_PIXELFORMAT_RGBA8SN:        return DXGI_FORMAT_R8G8B8A8_SNORM;
         case SG_PIXELFORMAT_RGBA8UI:        return DXGI_FORMAT_R8G8B8A8_UINT;
         case SG_PIXELFORMAT_RGBA8SI:        return DXGI_FORMAT_R8G8B8A8_SINT;
@@ -8746,6 +8784,8 @@ _SOKOL_PRIVATE DXGI_FORMAT _sg_d3d11_vertex_format(sg_vertex_format fmt) {
         case SG_VERTEXFORMAT_SHORT4N:   return DXGI_FORMAT_R16G16B16A16_SNORM;
         case SG_VERTEXFORMAT_USHORT4N:  return DXGI_FORMAT_R16G16B16A16_UNORM;
         case SG_VERTEXFORMAT_UINT10_N2: return DXGI_FORMAT_R10G10B10A2_UNORM;
+        case SG_VERTEXFORMAT_HALF2:     return DXGI_FORMAT_R16G16_FLOAT;
+        case SG_VERTEXFORMAT_HALF4:     return DXGI_FORMAT_R16G16B16A16_FLOAT;
         default: SOKOL_UNREACHABLE; return (DXGI_FORMAT) 0;
     }
 }
@@ -10146,6 +10186,8 @@ _SOKOL_PRIVATE MTLVertexFormat _sg_mtl_vertex_format(sg_vertex_format fmt) {
         case SG_VERTEXFORMAT_SHORT4N:   return MTLVertexFormatShort4Normalized;
         case SG_VERTEXFORMAT_USHORT4N:  return MTLVertexFormatUShort4Normalized;
         case SG_VERTEXFORMAT_UINT10_N2: return MTLVertexFormatUInt1010102Normalized;
+        case SG_VERTEXFORMAT_HALF2:     return MTLVertexFormatHalf2;
+        case SG_VERTEXFORMAT_HALF4:     return MTLVertexFormatHalf4;
         default: SOKOL_UNREACHABLE; return (MTLVertexFormat)0;
     }
 }
@@ -10185,6 +10227,7 @@ _SOKOL_PRIVATE MTLPixelFormat _sg_mtl_pixel_format(sg_pixel_format fmt) {
         case SG_PIXELFORMAT_RG16SI:                 return MTLPixelFormatRG16Sint;
         case SG_PIXELFORMAT_RG16F:                  return MTLPixelFormatRG16Float;
         case SG_PIXELFORMAT_RGBA8:                  return MTLPixelFormatRGBA8Unorm;
+        case SG_PIXELFORMAT_SRGB8A8:                return MTLPixelFormatRGBA8Unorm_sRGB;
         case SG_PIXELFORMAT_RGBA8SN:                return MTLPixelFormatRGBA8Snorm;
         case SG_PIXELFORMAT_RGBA8UI:                return MTLPixelFormatRGBA8Uint;
         case SG_PIXELFORMAT_RGBA8SI:                return MTLPixelFormatRGBA8Sint;
@@ -10684,6 +10727,7 @@ _SOKOL_PRIVATE void _sg_mtl_init_caps(void) {
     _sg_pixelformat_srm(&_sg.formats[SG_PIXELFORMAT_RG16SI]);
     _sg_pixelformat_all(&_sg.formats[SG_PIXELFORMAT_RG16F]);
     _sg_pixelformat_all(&_sg.formats[SG_PIXELFORMAT_RGBA8]);
+    _sg_pixelformat_all(&_sg.formats[SG_PIXELFORMAT_SRGB8A8]);
     _sg_pixelformat_all(&_sg.formats[SG_PIXELFORMAT_RGBA8SN]);
     _sg_pixelformat_srm(&_sg.formats[SG_PIXELFORMAT_RGBA8UI]);
     _sg_pixelformat_srm(&_sg.formats[SG_PIXELFORMAT_RGBA8SI]);
@@ -11733,7 +11777,7 @@ _SOKOL_PRIVATE void _sg_mtl_apply_uniforms(sg_shader_stage stage_index, int ub_i
     SOKOL_ASSERT(_sg.mtl.state_cache.cur_pipeline->slot.id == _sg.mtl.state_cache.cur_pipeline_id.id);
     SOKOL_ASSERT(_sg.mtl.state_cache.cur_pipeline->shader->slot.id == _sg.mtl.state_cache.cur_pipeline->cmn.shader_id.id);
     SOKOL_ASSERT(ub_index < _sg.mtl.state_cache.cur_pipeline->shader->cmn.stage[stage_index].num_uniform_blocks);
-    SOKOL_ASSERT(data->size <= _sg.mtl.state_cache.cur_pipeline->shader->cmn.stage[stage_index].uniform_blocks[ub_index].size);
+    SOKOL_ASSERT(data->size == _sg.mtl.state_cache.cur_pipeline->shader->cmn.stage[stage_index].uniform_blocks[ub_index].size);
 
     /* copy to global uniform buffer, record offset into cmd encoder, and advance offset */
     uint8_t* dst = &_sg.mtl.cur_ub_base_ptr[_sg.mtl.cur_ub_offset];
@@ -11946,6 +11990,8 @@ _SOKOL_PRIVATE WGPUVertexFormat _sg_wgpu_vertexformat(sg_vertex_format f) {
         case SG_VERTEXFORMAT_SHORT4:        return WGPUVertexFormat_Short4;
         case SG_VERTEXFORMAT_SHORT4N:       return WGPUVertexFormat_Short4Norm;
         case SG_VERTEXFORMAT_USHORT4N:      return WGPUVertexFormat_UShort4Norm;
+        case SG_VERTEXFORMAT_HALF2:         return WGPUVertexFormat_Half2;
+        case SG_VERTEXFORMAT_HALF3:         return WGPUVertexFormat_Half4;
         /* FIXME! UINT10_N2 */
         case SG_VERTEXFORMAT_UINT10_N2:
         default:
@@ -12034,6 +12080,7 @@ _SOKOL_PRIVATE WGPUTextureFormat _sg_wgpu_textureformat(sg_pixel_format p) {
         case SG_PIXELFORMAT_RG16SN:
         case SG_PIXELFORMAT_RGBA16:
         case SG_PIXELFORMAT_RGBA16SN:
+        case SG_PIXELFORMAT_SRGB8A8:
         case SG_PIXELFORMAT_RGB9E5:
         case SG_PIXELFORMAT_PVRTC_RGB_2BPP:
         case SG_PIXELFORMAT_PVRTC_RGB_4BPP:
@@ -15096,7 +15143,7 @@ _SOKOL_PRIVATE bool _sg_validate_apply_uniforms(sg_shader_stage stage_index, int
         SOKOL_VALIDATE(ub_index < stage->num_uniform_blocks, _SG_VALIDATE_AUB_NO_UB_AT_SLOT);
 
         /* check that the provided data size doesn't exceed the uniform block size */
-        SOKOL_VALIDATE(data->size <= stage->uniform_blocks[ub_index].size, _SG_VALIDATE_AUB_SIZE);
+        SOKOL_VALIDATE(data->size == stage->uniform_blocks[ub_index].size, _SG_VALIDATE_AUB_SIZE);
 
         return SOKOL_VALIDATE_END();
     #endif
