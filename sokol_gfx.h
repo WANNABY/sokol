@@ -3602,6 +3602,7 @@ inline int sg_append_buffer(sg_buffer buf_id, const sg_range& data) { return sg_
         #define GL_FRAMEBUFFER_SRGB 0x8DB9
         #define GL_MAX_TEXTURE_IMAGE_UNITS 0x8872
         #define GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS 0x8B4C
+        #define GL_TEXTURE_CUBE_MAP_SEAMLESS 0x884F
     #endif
 
     #ifndef GL_UNSIGNED_INT_2_10_10_10_REV
@@ -7038,6 +7039,10 @@ _SOKOL_PRIVATE sg_resource_state _sg_gl_create_context(_sg_context_t* ctx) {
     #endif
     // incoming texture data is generally expected to be packed tightly
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    #if defined(SOKOL_GLCORE33)
+        // enable seamless cubemap sampling (only desktop GL)
+        glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+    #endif
     return SG_RESOURCESTATE_VALID;
 }
 
