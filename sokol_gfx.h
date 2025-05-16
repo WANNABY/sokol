@@ -10528,6 +10528,12 @@ _SOKOL_PRIVATE sg_resource_state _sg_d3d11_create_image(_sg_image_t* img, const 
             d3d11_tex_desc.SampleDesc.Count = (UINT)img->cmn.sample_count;
             d3d11_tex_desc.SampleDesc.Quality = (UINT) (msaa ? D3D11_STANDARD_MULTISAMPLE_PATTERN : 0);
             d3d11_tex_desc.MiscFlags = (img->cmn.type == SG_IMAGETYPE_CUBE) ? D3D11_RESOURCE_MISC_TEXTURECUBE : 0;
+            // TODO: this is a hack to force this flag for every eligible texture with mips, might have downsides, or might be ok, need to check 
+            if ((d3d11_tex_desc.BindFlags & D3D11_BIND_RENDER_TARGET) &&
+                (d3d11_tex_desc.BindFlags & D3D11_BIND_SHADER_RESOURCE) &&
+                !msaa && d3d11_tex_desc.MipLevels > 1) {
+                d3d11_tex_desc.MiscFlags |= D3D11_RESOURCE_MISC_GENERATE_MIPS;
+            }
 
             hr = _sg_d3d11_CreateTexture2D(_sg.d3d11.dev, &d3d11_tex_desc, init_data, &img->d3d11.tex2d);
             if (!(SUCCEEDED(hr) && img->d3d11.tex2d)) {
